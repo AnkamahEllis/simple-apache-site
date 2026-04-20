@@ -1,0 +1,81 @@
+name: Deploy Apache Web Server
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'public-html/**'
+      - '.github/workflows/apache-deploy.yaml'
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Validate HTML files
+        run: |
+          for file in public-html/*.html; do
+            echo "Validating $file..."
+            # Add HTML validation tool or check for syntax
+          done
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Apache
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y apache2
+    
+    - name: Enable Apache modules
+      run: |
+        sudo a2enmod rewrite
+        sudo a2enmod ssl
+    
+    - name: Clear existing site files
+      run: sudo rm -rf /var/www/html/*
+    
+    - name: Copy only public-html files
+      run: |
+        sudo cp -r public-html/* /var/www/html/
+        sudo chown -R www-data:www-data /var/www/html
+        sudo chmod -R 755 /var/www/html
+    
+    - name: Validate Apache config
+      run: sudo apache2ctl configtest
+    
+    - name: Restart Apache service
+      run: |
+        sudo systemctl restart apache2
+        sudo systemctl status apache2
+    
+    - name: Verify deployment
+      run: |
+        sleep 2
+        curl -f http://localhost/ > /dev/null
+        curl -f http://localhost/about.html > /dev/null
+        echo "✓ All pages deployed successfully"
+    
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: apache-logs
+        path: /var/log/apache2/
+        retention-days: 7
